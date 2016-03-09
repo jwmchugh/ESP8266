@@ -1,6 +1,6 @@
 #include <ESP8266WiFi.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
+#include <PubSubClient.h> // http://pubsubclient.knolleary.net/
+#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson
 
 
 // #WiFi Details
@@ -23,14 +23,15 @@ const short MIN_VIS_THRES = 100;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// All light variables are in order R,G,B
-
 // Light state variables
 bool powered_on = false;
 bool light_on[3];
 bool prev_light_on[3];
-int light_brightness[3];
-int prev_light_brightness[3];
+short light_brightness[3];
+short prev_light_brightness[3];
+const short REDVAL = 0;
+const short GREENVAL = 1;
+const short BLUEVAL = 2;
 
 // ESP8266 Data
 const int REDPIN = 12;
@@ -43,6 +44,28 @@ void save_previous_state(){
   }
 }
 
+void check_light_values()
+{
+  for (int i=0;i<3;i++){
+    if(light_brightness[i] < MIN_VIS_THRES){
+      light_brightness[i] = 0;
+    }
+  }
+}
+
+void set_lights(short light_values[3]){
+  analogWrite(REDPIN, light_values[REDVAL]);
+  analogWrite(GREENPIN, light_values[GREENVAL]);
+  analogWrite(BLUEPIN, light_values[BLUEVAL]);
+}
+
+void light_alert(){
+  // Turn red for 1 second to notify brightness of all set to zero
+  analogWrite(REDPIN, MAX_LED_BRI);
+  delay(1000);
+  analogWrite(REDPIN, 0);
+}
+
 // MQTT Callback function
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived on Topic[");
@@ -50,39 +73,49 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("] with message :");
   char* message = new char[length+1];
   for (int i=0;i<length;i++) {
-    Serial.print((char)payload[i]);
+    // Serial.print((char)payload[i]);
     message[i] = (char)payload[i];
   }
   message[length] = '\0';
-  if (strcmp(message, "fullpower") == 0){
+  Serial.println(message);
+  
+  // Create JSON Buffer  
+  StaticJsonBuffer<100> jsonBuffer;
+  JsonObject& root = jsonBuffer.parseObject(message); 
+  if (!root.success())
+  {
+    Serial.println("parseObject() failed");
+    light_alert();
+    return;
+  }
+ 
+  const char* function_call = root["function"];
+  Serial.println(function_call);
+      
+  if (strcmp(function_call, "fullpower") == 0){
     for (int i=0;i<3;i++){
       light_brightness[i] = MAX_LED_BRI;
       light_on[i] = true;
     }
-    analogWrite(REDPIN, light_brightness[0]);
-    analogWrite(GREENPIN, light_brightness[1]);
-    analogWrite(BLUEPIN, light_brightness[2]);  
+    set_lights(light_brightness);
   }
-  else if (strcmp(message, "halfpower") == 0){
+  else if (strcmp(function_call, "halfpower") == 0){
     for (int i=0;i<3;i++){
       light_brightness[i] = MAX_LED_BRI / 2;
       light_on[i] = true;
     }
-    analogWrite(REDPIN, light_brightness[0]);
-    analogWrite(GREENPIN, light_brightness[1]);
-    analogWrite(BLUEPIN, light_brightness[2]);  
+    set_lights(light_brightness);
   }
-  else if (strcmp(message, "power") == 0){
-    if(light_on[0] || light_on[1] || light_on[2] )
+  else if (strcmp(function_call, "power") == 0){
+    if(light_on[REDVAL] || light_on[GREENVAL] || light_on[BLUEVAL] )
     {
       for(int i=0;i<3;i++){
         prev_light_on[i] = light_on[i];
         light_on[i] = false;
         prev_light_brightness[i] = light_brightness[i];
       }
-      analogWrite(REDPIN, 0);
-      analogWrite(GREENPIN, 0);
-      analogWrite(BLUEPIN, 0);
+      short light_val[3] = {0};
+      set_lights(light_val);
     }
     else { // not powered_on
       for (int i=0;i<3;i++)
@@ -93,55 +126,58 @@ void callback(char* topic, byte* payload, unsigned int length) {
         }
       }
       if(prev_light_on[0]){
-        analogWrite(REDPIN, light_brightness[0]);
+        analogWrite(REDPIN, light_brightness[REDVAL]);
       }
       if(prev_light_on[1]){
-        analogWrite(GREENPIN, light_brightness[1]);
+        analogWrite(GREENPIN, light_brightness[GREENVAL]);
       }
       if(prev_light_on[2]){
-        analogWrite(BLUEPIN, light_brightness[2]);
+        analogWrite(BLUEPIN, light_brightness[BLUEVAL]);
       }
       
       if (light_brightness[0] < MIN_VIS_THRES && light_brightness[1] < MIN_VIS_THRES && light_brightness[2] < MIN_VIS_THRES){
-        // Turn red for 1 second to notify brightness of all set to zero
-        analogWrite(REDPIN, MAX_LED_BRI);
-        delay(1000);
-        analogWrite(REDPIN, 0);
+        light_alert();
         for (int i=0;i<3;i++)
         {
           light_brightness[i] = MAX_LED_BRI / 2;
         }
       }
     }
-  }    
-  else if (strcmp(message, "red") == 0){
-    if (light_on[0]){
+  }
+  else if (strcmp(function_call, "set_lights") == 0){
+    light_brightness[REDVAL] = root["red"].as<short>();
+    light_brightness[GREENVAL] = root["green"].as<short>();
+    light_brightness[BLUEVAL] = root["blue"].as<short>();
+    set_lights(light_brightness);
+  }
+  else if (strcmp(function_call, "red") == 0){
+    if (light_on[REDVAL]){
       analogWrite(REDPIN, 0);
     }
     else{
-      analogWrite(REDPIN, light_brightness[0]);  
+      analogWrite(REDPIN, light_brightness[REDVAL]);  
     }
-    light_on[0] = !light_on[0]; 
+    light_on[REDVAL] = !light_on[REDVAL]; 
   }
-  else if (strcmp(message, "green") == 0){
-    if (light_on[1]){
-      analogWrite(GREENPIN, 0);
+  else if (strcmp(function_call, "green") == 0){
+    if (light_on[GREENVAL]){
+      analogWrite(GREENPIN, GREENVAL);
     }
     else{
       analogWrite(GREENPIN, light_brightness[1]);  
     }
-    light_on[1] = !light_on[1]; 
+    light_on[GREENVAL] = !light_on[GREENVAL]; 
   }
-  else if (strcmp(message, "blue") == 0){
-    if (light_on[2]){
+  else if (strcmp(function_call, "blue") == 0){
+    if (light_on[BLUEVAL]){
       analogWrite(BLUEPIN, 0);
     }
     else{
-      analogWrite(BLUEPIN, light_brightness[2]);  
+      analogWrite(BLUEPIN, light_brightness[BLUEVAL]);  
     }
-    light_on[2] = !light_on[2]; 
+    light_on[BLUEVAL] = !light_on[BLUEVAL]; 
   }
-  else if (strcmp(message, "brighter") == 0){
+  else if (strcmp(function_call, "brighter") == 0){
     for (int i=0;i<3;i++){
       if (light_on[i]){
         light_brightness[i] += light_brightness[i] * 0.1;
@@ -151,16 +187,16 @@ void callback(char* topic, byte* payload, unsigned int length) {
       }
     }
     if (light_on[0]){
-      analogWrite(REDPIN, light_brightness[0]);   
+      analogWrite(REDPIN, light_brightness[REDVAL]);   
     }
     if (light_on[1]){
-      analogWrite(GREENPIN, light_brightness[1]);   
+      analogWrite(GREENPIN, light_brightness[GREENVAL]);   
     }
     if (light_on[2]){
-      analogWrite(BLUEPIN, light_brightness[2]);   
+      analogWrite(BLUEPIN, light_brightness[BLUEVAL]);   
     }
   }
-  else if (strcmp(message, "dim") == 0){
+  else if (strcmp(function_call, "dim") == 0){
     for (int i=0;i<3;i++){
       if (light_on[i]){
         light_brightness[i] -= light_brightness[i] * 0.1;
@@ -169,22 +205,22 @@ void callback(char* topic, byte* payload, unsigned int length) {
         }
       }      
     }
-    if (light_on[0]){
-      analogWrite(REDPIN, light_brightness[0]);   
-      if(light_brightness[0] == 0){
-        light_on[0] = false;
+    if (light_on[REDVAL]){
+      analogWrite(REDPIN, light_brightness[REDVAL]);   
+      if(light_brightness[REDVAL] == 0){
+        light_on[REDVAL] = false;
       }        
     }
-    if (light_on[1]){
-      analogWrite(GREENPIN, light_brightness[1]);   
-      if(light_brightness[1] == 0){
-        light_on[1] = false;
+    if (light_on[GREENVAL]){
+      analogWrite(GREENPIN, light_brightness[GREENVAL]);   
+      if(light_brightness[GREENVAL] == 0){
+        light_on[GREENVAL] = false;
       }
     }
-    if (light_on[2]){
-      analogWrite(BLUEPIN, light_brightness[2]);   
-      if(light_brightness[2] == 0){
-        light_on[2] = false;
+    if (light_on[BLUEVAL]){
+      analogWrite(BLUEPIN, light_brightness[BLUEVAL]);   
+      if(light_brightness[BLUEVAL] == 0){
+        light_on[BLUEVAL] = false;
       }
     } 
   }  // End Dim
@@ -221,11 +257,10 @@ void setup()
   Serial.begin(9600);
   delay(100);
 
-  digitalWrite(REDPIN, HIGH);
-  digitalWrite(GREENPIN, HIGH);
-  digitalWrite(BLUEPIN, HIGH);
+  short light_vals[3] = {512,512,512};
+  set_lights(light_vals);
+  //analogWrite(REDPIN, 512);
     
-  Serial.println();
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(WIFI_SSID);
@@ -239,17 +274,15 @@ void setup()
     Serial.print(".");
   }
 
-  Serial.println("");
   Serial.println("WiFi connected");
-  Serial.println("IP address: ");
+  Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
   client.setServer(MQTT_BROKER, MQTT_PORT);
   client.setCallback(callback);
 
-  digitalWrite(REDPIN, LOW);
-  digitalWrite(GREENPIN, LOW);
-  digitalWrite(BLUEPIN, LOW);
+  short light_val1[3] = {0};
+  set_lights(light_val1);
   delay(300);
 
   // Initalise variables
@@ -267,5 +300,3 @@ void loop()
   }
   client.loop();
 }  
-
-
