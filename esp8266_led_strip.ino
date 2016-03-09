@@ -91,7 +91,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
  
   const char* function_call = root["function"];
   Serial.println(function_call);
-      
+
+  /*    
+   *     Possible functions:
+   *     fullpower - turn on all lights at full power
+   *     power - toggle on and off. On a power on, use previous settings
+   *     set_lights - set value for each light with value passed
+   */
   if (strcmp(function_call, "fullpower") == 0){
     for (int i=0;i<3;i++){
       light_brightness[i] = MAX_LED_BRI;
@@ -150,33 +156,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     light_brightness[BLUEVAL] = root["blue"].as<short>();
     set_lights(light_brightness);
   }
-  else if (strcmp(function_call, "red") == 0){
-    if (light_on[REDVAL]){
-      analogWrite(REDPIN, 0);
-    }
-    else{
-      analogWrite(REDPIN, light_brightness[REDVAL]);  
-    }
-    light_on[REDVAL] = !light_on[REDVAL]; 
-  }
-  else if (strcmp(function_call, "green") == 0){
-    if (light_on[GREENVAL]){
-      analogWrite(GREENPIN, GREENVAL);
-    }
-    else{
-      analogWrite(GREENPIN, light_brightness[1]);  
-    }
-    light_on[GREENVAL] = !light_on[GREENVAL]; 
-  }
-  else if (strcmp(function_call, "blue") == 0){
-    if (light_on[BLUEVAL]){
-      analogWrite(BLUEPIN, 0);
-    }
-    else{
-      analogWrite(BLUEPIN, light_brightness[BLUEVAL]);  
-    }
-    light_on[BLUEVAL] = !light_on[BLUEVAL]; 
-  }
   else if (strcmp(function_call, "brighter") == 0){
     for (int i=0;i<3;i++){
       if (light_on[i]){
@@ -186,13 +165,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
         }
       }
     }
-    if (light_on[0]){
+    if (light_on[REDVAL]){
       analogWrite(REDPIN, light_brightness[REDVAL]);   
     }
-    if (light_on[1]){
+    if (light_on[GREENVAL]){
       analogWrite(GREENPIN, light_brightness[GREENVAL]);   
     }
-    if (light_on[2]){
+    if (light_on[BLUEVAL]){
       analogWrite(BLUEPIN, light_brightness[BLUEVAL]);   
     }
   }
