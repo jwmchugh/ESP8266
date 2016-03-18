@@ -54,6 +54,14 @@ void check_light_values()
 }
 
 void set_lights(short light_values[3]){
+  for(int i=0; i<3;i++){
+    if (light_values[i] > 0){
+      light_on[i] = true;
+    }
+    else{
+      light_on[i] = false;
+    }
+  }
   analogWrite(REDPIN, light_values[REDVAL]);
   analogWrite(GREENPIN, light_values[GREENVAL]);
   analogWrite(BLUEPIN, light_values[BLUEVAL]);
@@ -73,7 +81,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("] with message :");
   char* message = new char[length+1];
   for (int i=0;i<length;i++) {
-    // Serial.print((char)payload[i]);
     message[i] = (char)payload[i];
   }
   message[length] = '\0';
@@ -97,113 +104,123 @@ void callback(char* topic, byte* payload, unsigned int length) {
    *     fullpower - turn on all lights at full power
    *     power - toggle on and off. On a power on, use previous settings
    *     set_lights - set value for each light with value passed
+   *     brighter - brighten lights by 10%
+   *     dim - dim lights by 10%
    */
-  if (strcmp(function_call, "fullpower") == 0){
-    for (int i=0;i<3;i++){
-      light_brightness[i] = MAX_LED_BRI;
-      light_on[i] = true;
-    }
+  
+  if (strcmp(function_call, "setLights") == 0){
+    light_brightness[REDVAL] = 10.24 * root["red"].as<short>();
+    light_brightness[GREENVAL] = 10.24 * root["green"].as<short>();
+    light_brightness[BLUEVAL] = 10.24 * root["blue"].as<short>();
     set_lights(light_brightness);
   }
-  else if (strcmp(function_call, "halfpower") == 0){
-    for (int i=0;i<3;i++){
-      light_brightness[i] = MAX_LED_BRI / 2;
-      light_on[i] = true;
+  else if (strcmp(function_call, "brightness") == 0){
+
+    float brightness = 10.24 * root["brightVal"].as<int>();
+
+    // find brightest colour to base brightness value off
+    short highestVal = light_brightness[0];
+    for (int i=1;i<3;i++){
+      if(light_brightness[i] > highestVal){
+        highestVal = light_brightness[i];
+      }
     }
-    set_lights(light_brightness);
+
+    float newRedVal, newGreenVal, newBlueVal;
+    if (brightness > highestVal){ // Brighten Lights
+      float brightnessFactor =  ((brightness - highestVal) / highestVal);
+      light_brightness[REDVAL] =   light_brightness[REDVAL] + (light_brightness[REDVAL]   * brightnessFactor);
+      light_brightness[GREENVAL] = light_brightness[GREENVAL] + (light_brightness[GREENVAL] * brightnessFactor);
+      light_brightness[BLUEVAL] =  light_brightness[BLUEVAL] + (light_brightness[BLUEVAL]  * brightnessFactor);
+    }
+    else { // Dim Lights
+      float brightnessFactor = ((highestVal - brightness) / highestVal);
+      light_brightness[REDVAL] =   light_brightness[REDVAL] - (light_brightness[REDVAL]   * brightnessFactor);
+      light_brightness[GREENVAL] = light_brightness[GREENVAL] - (light_brightness[GREENVAL] * brightnessFactor);
+      light_brightness[BLUEVAL] =  light_brightness[BLUEVAL] - (light_brightness[BLUEVAL]  * brightnessFactor);
+    }
+
+    if (light_on[REDVAL]){
+      analogWrite(REDPIN, light_brightness[REDVAL]);   
+    }
+    if (light_on[GREENVAL]){
+      analogWrite(GREENPIN, light_brightness[GREENVAL]);   
+    }
+    if (light_on[BLUEVAL]){
+      analogWrite(BLUEPIN, light_brightness[BLUEVAL]);   
+    }
   }
-  else if (strcmp(function_call, "power") == 0){
-    if(light_on[REDVAL] || light_on[GREENVAL] || light_on[BLUEVAL] )
+  else if (strcmp(function_call, "redBrightness") == 0){
+    int brightness = root["redVal"].as<int>();
+    
+    light_brightness[REDVAL] = brightness * 10.24;
+    
+    if (light_brightness[REDVAL] > MIN_VIS_THRES)
     {
-      for(int i=0;i<3;i++){
-        prev_light_on[i] = light_on[i];
-        light_on[i] = false;
-        prev_light_brightness[i] = light_brightness[i];
-      }
-      short light_val[3] = {0};
-      set_lights(light_val);
+      light_on[REDVAL] = true;
     }
-    else { // not powered_on
-      for (int i=0;i<3;i++)
-      {
-        if (prev_light_on[i]){
-          light_on[i] = true;
-          light_brightness[i] = prev_light_brightness[i]; 
-        }
-      }
-      if(prev_light_on[0]){
-        analogWrite(REDPIN, light_brightness[REDVAL]);
-      }
-      if(prev_light_on[1]){
-        analogWrite(GREENPIN, light_brightness[GREENVAL]);
-      }
-      if(prev_light_on[2]){
-        analogWrite(BLUEPIN, light_brightness[BLUEVAL]);
-      }
-      
-      if (light_brightness[0] < MIN_VIS_THRES && light_brightness[1] < MIN_VIS_THRES && light_brightness[2] < MIN_VIS_THRES){
-        light_alert();
-        for (int i=0;i<3;i++)
-        {
-          light_brightness[i] = MAX_LED_BRI / 2;
-        }
-      }
-    }
-  }
-  else if (strcmp(function_call, "set_lights") == 0){
-    light_brightness[REDVAL] = root["red"].as<short>();
-    light_brightness[GREENVAL] = root["green"].as<short>();
-    light_brightness[BLUEVAL] = root["blue"].as<short>();
-    set_lights(light_brightness);
-  }
-  else if (strcmp(function_call, "brighter") == 0){
-    for (int i=0;i<3;i++){
-      if (light_on[i]){
-        light_brightness[i] += light_brightness[i] * 0.1;
-        if (light_brightness[i] > MAX_LED_BRI){
-          light_brightness[i] = MAX_LED_BRI;
-        }
-      }
-    }
+    
     if (light_on[REDVAL]){
       analogWrite(REDPIN, light_brightness[REDVAL]);   
     }
-    if (light_on[GREENVAL]){
-      analogWrite(GREENPIN, light_brightness[GREENVAL]);   
-    }
-    if (light_on[BLUEVAL]){
-      analogWrite(BLUEPIN, light_brightness[BLUEVAL]);   
+    else{
+      Serial.println("Red Light is not switched on");
     }
   }
-  else if (strcmp(function_call, "dim") == 0){
-    for (int i=0;i<3;i++){
-      if (light_on[i]){
-        light_brightness[i] -= light_brightness[i] * 0.1;
-        if (light_brightness[i] < MIN_VIS_THRES){
-          light_brightness[i] = 0;
-        }
-      }      
+  else if (strcmp(function_call, "greenBrightness") == 0){
+    int brightness = root["greenVal"].as<int>();
+    
+    light_brightness[GREENVAL] = brightness * 10.24;
+    
+    if (light_brightness[GREENVAL] > MIN_VIS_THRES)
+    {
+      light_on[GREENVAL] = true;
     }
-    if (light_on[REDVAL]){
-      analogWrite(REDPIN, light_brightness[REDVAL]);   
-      if(light_brightness[REDVAL] == 0){
-        light_on[REDVAL] = false;
-      }        
-    }
+    
     if (light_on[GREENVAL]){
       analogWrite(GREENPIN, light_brightness[GREENVAL]);   
-      if(light_brightness[GREENVAL] == 0){
-        light_on[GREENVAL] = false;
-      }
     }
+    else{
+      Serial.println("Green Light is not switched on");
+    }
+  }
+  else if (strcmp(function_call, "blueBrightness") == 0){
+    int brightness = root["blueVal"].as<int>();
+    
+    light_brightness[BLUEVAL] = brightness * 10.24;
+    
+    if (light_brightness[BLUEVAL] > MIN_VIS_THRES)
+    {
+      light_on[BLUEVAL] = true;
+    }
+    
     if (light_on[BLUEVAL]){
       analogWrite(BLUEPIN, light_brightness[BLUEVAL]);   
-      if(light_brightness[BLUEVAL] == 0){
-        light_on[BLUEVAL] = false;
-      }
-    } 
-  }  // End Dim
-  Serial.println();
+    }
+    else{
+      Serial.println("Blue Light is not switched on");
+    }
+  }
+  else if(strcmp(function_call, "diagnostic") == 0){
+    Serial.println("Diagnostic Information");
+    Serial.println("----------------------");
+    Serial.print("Red on ");
+    Serial.print(light_on[REDVAL]);
+    Serial.print(" and value of: ");
+    Serial.println(light_brightness[REDVAL]);
+    Serial.print("Green on ");
+    Serial.print(light_on[GREENVAL]);
+    Serial.print(" and value of: ");
+    Serial.println(light_brightness[GREENVAL]);
+    Serial.print("Blue on ");
+    Serial.print(light_on[BLUEVAL]);
+    Serial.print(" and value of: ");
+    Serial.println(light_brightness[BLUEVAL]);
+    
+  }
+  else {
+    Serial.println("Function not found - are you sure it is correct?"); 
+  }
   delete[] message;
 }
 
@@ -236,9 +253,8 @@ void setup()
   Serial.begin(9600);
   delay(100);
 
-  short light_vals[3] = {512,512,512};
+  short light_vals[3] = {512,0,0};
   set_lights(light_vals);
-  //analogWrite(REDPIN, 512);
     
   Serial.println();
   Serial.print("Connecting to ");
