@@ -24,11 +24,8 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 // Light state variables
-bool powered_on = false;
 bool light_on[3];
-bool prev_light_on[3];
 short light_brightness[3];
-short prev_light_brightness[3];
 const short REDVAL = 0;
 const short GREENVAL = 1;
 const short BLUEVAL = 2;
@@ -37,21 +34,6 @@ const short BLUEVAL = 2;
 const int REDPIN = 12;
 const int GREENPIN = 13;
 const int BLUEPIN = 16;
-
-void save_previous_state(){
-  for (int i=0;i<3;i++){
-    prev_light_brightness[0] = light_brightness[0];
-  }
-}
-
-void check_light_values()
-{
-  for (int i=0;i<3;i++){
-    if(light_brightness[i] < MIN_VIS_THRES){
-      light_brightness[i] = 0;
-    }
-  }
-}
 
 void set_lights(short light_values[3]){
   for(int i=0; i<3;i++){
@@ -72,6 +54,27 @@ void light_alert(){
   analogWrite(REDPIN, MAX_LED_BRI);
   delay(1000);
   analogWrite(REDPIN, 0);
+}
+
+void publishUpdate(){
+
+  StaticJsonBuffer<100> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  // Always work it back to the range 0-100 for the client
+  root["red"]   = (int) (light_brightness[REDVAL]   / 10.24);
+  root["green"] = (int) (light_brightness[GREENVAL] / 10.24);
+  root["blue"]  = (int) (light_brightness[BLUEVAL]  / 10.24);
+
+  Serial.print("publishUpdate with string: ");
+  root.printTo(Serial);
+  Serial.println();
+
+  char payload[100];
+  root.printTo(payload, sizeof(payload));
+
+  // Publish the msg and have broker retain for new controllers 
+  bool retain = true;
+  client.publish(MQTT_UPDATE_TOPIC, payload, retain);
 }
 
 // MQTT Callback function
@@ -126,8 +129,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
       }
     }
 
-    float newRedVal, newGreenVal, newBlueVal;
-    if (brightness > highestVal){ // Brighten Lights
+    if (highestVal == 0) { // All set to off
+      light_brightness[REDVAL] = light_brightness[GREENVAL] = light_brightness[BLUEVAL] = brightness;
+    }
+    else if (brightness > highestVal){ // Brighten Lights
       float brightnessFactor =  ((brightness - highestVal) / highestVal);
       light_brightness[REDVAL] =   light_brightness[REDVAL] + (light_brightness[REDVAL]   * brightnessFactor);
       light_brightness[GREENVAL] = light_brightness[GREENVAL] + (light_brightness[GREENVAL] * brightnessFactor);
@@ -221,6 +226,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   else {
     Serial.println("Function not found - are you sure it is correct?"); 
   }
+  publishUpdate();
   delete[] message;
 }
 
@@ -231,7 +237,7 @@ void reconnect() {
     // Attempt to connect
     if (client.connect("ESP8266Client", MQTT_USER, MQTT_PASS)) {
       Serial.println("connected");
-      client.subscribe(MQTT_LED_TOP);
+      client.subscribe(MQTT_LED_TOPIC);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -284,7 +290,6 @@ void setup()
   for (int i=0;i<3;i++){
     light_on[i] = false;
     light_brightness[i] = MAX_LED_BRI;
-    prev_light_brightness[i] = light_brightness[i];
   }
 }
 
